@@ -876,6 +876,89 @@ def self_test():
     raises(swap, "a straight swap of two unique values is refused, not half done",
            UniqueCollision)
 
+    # ---- the derived rewrite the README documents, and no --derive flag
+    # Rebuilding a key from other columns needs no new code: a SearchCursor
+    # loop writes the CSV and --unique-field does the refusing. What has to
+    # hold for that recipe to be safe is that a generated `expected` is
+    # treated exactly like a reviewed one, so the four claims the README
+    # example makes are pinned here rather than left to the reader.
+    def derived(table):
+        """The README generator loop, with the cursor replaced by a list."""
+        return [edit(to_text(row["OBJECTID"]), "ASSETID",
+                     to_text(row["ASSETID"]),
+                     "%s-%s" % (row["ROUTE"], row["MILEPOST"]), line=i + 2)
+                for i, row in enumerate(table)]
+
+    assets = [{"OBJECTID": 1, "ASSETID": "A01", "ROUTE": "SR40",
+               "MILEPOST": "012"},
+              {"OBJECTID": 2, "ASSETID": "A02", "ROUTE": "CR314",
+               "MILEPOST": "004"}]
+    plan = build_plan(derived(assets), assets, unique_fields=("ASSETID",))
+    check([c.new for c in plan.changes] == ["SR40-012", "CR314-004"],
+          "a CSV generated from the layer plans every row")
+
+    rewritten = [{"OBJECTID": 1, "ASSETID": "SR40-012", "ROUTE": "SR40",
+                  "MILEPOST": "012"},
+                 {"OBJECTID": 2, "ASSETID": "CR314-004", "ROUTE": "CR314",
+                  "MILEPOST": "004"}]
+    plan = build_plan(derived(assets), rewritten, unique_fields=("ASSETID",))
+    check(plan.changes == [] and len(plan.applied) == 2,
+          "re-running the same generated CSV after the apply writes nothing")
+
+    # The generated `expected` is the value the cursor read, so a row edited
+    # between the generator run and the apply is a conflict on the same terms
+    # as a stale reviewed cell. Nothing about a derived value weakens that.
+    moved = [dict(assets[0], ASSETID="somebody else fixed it"), assets[1]]
+    plan = build_plan(derived(assets), moved, unique_fields=("ASSETID",))
+    check(len(plan.conflicts) == 1 and len(plan.changes) == 1,
+          "a row edited since the CSV was generated is a conflict, not a write")
+
+    # Two rows deriving one value is the failure mode a derived rewrite has
+    # and a reviewed list does not: nobody proof-read the generated column.
+    # --unique-field does NOT catch it. owners_of reads the layer as it stands
+    # before the batch, so a value no row holds yet collides with nothing, and
+    # both rows are planned. Verified against a file geodatabase: five rows in,
+    # "APPLIED -- 5 row(s) updated", two rows left holding SR40-012. The README
+    # example carries its own duplicate check for this reason, and the pair
+    # below is what stops that check being deleted as redundant.
+    clash = [assets[0], dict(assets[1], ROUTE="SR40", MILEPOST="012")]
+    plan = build_plan(derived(clash), clash, unique_fields=("ASSETID",))
+    check([c.new for c in plan.changes] == ["SR40-012", "SR40-012"],
+          "--unique-field compares against the layer, not against the other "
+          "new values in the batch  <-- pinned defect")
+
+    def seen_twice(edits):
+        """The duplicate check the README generator loop carries."""
+        seen = {}
+        for item in edits:
+            if item.new in seen:
+                raise ValueError("line %d derives %r, already derived on line "
+                                 "%d" % (item.line, item.new, seen[item.new]))
+            seen[item.new] = item.line
+        return False
+    raises(lambda: seen_twice(derived(clash)),
+           "so the generator loop refuses the duplicate before fcpatch sees it")
+    check(seen_twice(derived(assets)) is False,
+          "and passes a derivation that is unique")
+
+    # The half --unique-field does cover: a derived value another row already
+    # holds. That is the collision a rewrite run in two passes walks into.
+    held = [dict(assets[0], ASSETID="CR314-004"), assets[1]]
+    raises(lambda: build_plan(derived(assets), held,
+                             unique_fields=("ASSETID",)),
+           "a derived value already held by another row is refused",
+           UniqueCollision)
+
+    # to_text is what the generator loop needs for a NULL: an empty CSV cell
+    # means the empty string, which in a text column is a different value.
+    blank = [{"OBJECTID": 1, "ASSETID": None, "ROUTE": "SR40",
+              "MILEPOST": "012"}]
+    check(derived(blank)[0].expected == NULL_TOKEN,
+          "a NULL in the source column generates the null token, not a blank")
+    plan = build_plan(derived(blank), blank, unique_fields=("ASSETID",))
+    check(len(plan.changes) == 1,
+          "so a row whose key is NULL is planned, not reported as drifted")
+
     # ---- THE PINNED DEFECT: check every row before writing any row
     ten = [{"OBJECTID": i, "NAME": "r%d" % i, "VALUE": "old"}
            for i in range(1, 11)]
