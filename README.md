@@ -47,6 +47,8 @@ PASS  two edits to one field of one key raise  <-- pinned defect
 PASS  a key matching two rows raises rather than picking one  <-- pinned defect
 PASS  a key differing only in whitespace is reported, not matched  <-- pinned defect
 ...
+PASS  a unique prefix of --apply is refused, not read as the write flag  <-- pinned defect
+...
 PASS  the check writes nothing at all  <-- pinned defect
 PASS  and writes nothing the second time  <-- pinned defect
 PASS  the drifted row was not overwritten  <-- pinned defect
@@ -59,7 +61,7 @@ PASS  a misspelt --unique-field exits 64 rather than enforcing nothing  <-- pinn
 PASS  an unwritable snapshot exits 2 BEFORE anything is written  <-- pinned defect
 PASS  a SearchCursor cannot write, so the pre-flight pass cannot either
 --------------------------------------------------------------------
-216 assertions, 0 failed
+226 assertions, 0 failed
 ```
 
 ## Requirements

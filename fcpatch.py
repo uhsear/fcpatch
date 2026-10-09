@@ -1283,6 +1283,14 @@ def self_test():
     check(_parse(["--fc", "f", "--edits", "e.csv", "--apply"]).apply is True,
           "--apply is read")
 
+    def _prefix_refused():
+        # argparse exits 2 on an unknown option, after printing usage to stderr
+        with contextlib.redirect_stderr(io.StringIO()):
+            _parse(["--fc", "f", "--edits", "e.csv", "--ap"])
+    raises(_prefix_refused,
+           "a unique prefix of --apply is refused, not read as the write flag"
+           "  <-- pinned defect", SystemExit)
+
     # ---- arcpy is imported lazily, and says what to do when it is absent
     try:
         import arcpy
@@ -1626,6 +1634,7 @@ def read_edits(path):
 def _parse(argv):
     ap = argparse.ArgumentParser(
         prog="fcpatch.py",
+        allow_abbrev=False,
         description="Apply a reviewed list of attribute corrections, and "
                     "refuse every row whose current value is no longer the "
                     "value that was reviewed.",
